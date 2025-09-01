@@ -18,6 +18,9 @@
 
 package com.navercorp.fixturemonkey.api.random;
 
+import static com.navercorp.fixturemonkey.api.exception.Exceptions.throwAsUnchecked;
+
+import java.lang.reflect.Field;
 import java.util.Random;
 
 import org.apiguardian.api.API;
@@ -37,10 +40,12 @@ import com.navercorp.fixturemonkey.api.engine.EngineUtils;
 public abstract class Randoms {
 	private static final ThreadLocal<Random> CURRENT;
 	private static final ThreadLocal<Long> SEED;
+	private static final Field SOURCE_OF_RANDOMNESS_CURRENT_FIELD;
 
 	static {
 		SEED = ThreadLocal.withInitial(System::nanoTime);
 		CURRENT = ThreadLocal.withInitial(() -> Randoms.newGlobalSeed(SEED.get()));
+		SOURCE_OF_RANDOMNESS_CURRENT_FIELD = initializeSourceOfRandomnessCurrentField();
 	}
 
 	/**
@@ -79,7 +84,7 @@ public abstract class Randoms {
 
 	public static Random current() {
 		return EngineUtils.useJqwikEngine()
-			? SourceOfRandomness.current()
+			? getCurrentFromSourceOfRandomness()
 			: CURRENT.get();
 	}
 
@@ -105,6 +110,28 @@ public abstract class Randoms {
 			SEED.set(seed);
 		} catch (NumberFormatException nfe) {
 			throw new IllegalArgumentException(String.format("[%s] is not a valid random seed.", seed));
+		}
+	}
+
+	private static Field initializeSourceOfRandomnessCurrentField() {
+		try {
+			Field field = SourceOfRandomness.class.getDeclaredField("current");
+			field.setAccessible(true);
+			return field;
+		} catch (NoSuchFieldException e) {
+			throw throwAsUnchecked(e);
+		}
+	}
+
+	private static Random getCurrentFromSourceOfRandomness() {
+		try {
+			Object currentField = SOURCE_OF_RANDOMNESS_CURRENT_FIELD.get(null);
+			if (currentField instanceof ThreadLocal) {
+				return (Random) ((ThreadLocal<?>) currentField).get();
+			}
+			return (Random) currentField;
+		} catch (IllegalAccessException e) {
+			throw throwAsUnchecked(e);
 		}
 	}
 
